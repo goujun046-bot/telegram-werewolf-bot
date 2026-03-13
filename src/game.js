@@ -82,6 +82,8 @@ export function startGame(room) {
   room.lastPublicLog = "游戏开始，进入黑夜。";
   resetNight(room);
   resetDay(room);
+  // initialize optional structures for guard and hunter
+  room.hunterShots = new Map(); // shooterId -> targetId
 }
 
 export function resetNight(room) {
@@ -103,6 +105,11 @@ export function recordWolfVote(room, wolfId, targetId) {
   room.night.wolfTarget = pickMajority(room.night.wolfVotes);
 }
 
+export function recordGuardPick(room, targetId) {
+  // Guard protects this player for the current night
+  room.night.guardTarget = targetId;
+}
+
 export function recordSeerCheck(room, targetId) {
   room.night.seerTarget = targetId;
 }
@@ -119,15 +126,20 @@ export function recordWitchPoison(room, targetId) {
 
 export function canResolveNight(room) {
   // Wolves must have picked a target; Witch must decide save/no-save if a victim exists.
+  // If wolves haven't chosen a target, we can still proceed after a timeout (handled elsewhere).
+  // The game should not stall because the seer doesn't act, so seer is excluded.
   if (!room.night.wolfTarget) return false;
   if (room.night.witchSave === null) return false;
+  // Guard and hunter actions are optional and handled separately.
   return true;
 }
 
 export function resolveNight(room) {
   const deaths = [];
   const wolfTarget = room.night.wolfTarget;
-  if (wolfTarget && room.alive.has(wolfTarget)) {
+  // Guard protection: if guardTarget matches wolfTarget, the kill is prevented
+  const guardProtected = room.night.guardTarget === wolfTarget;
+  if (wolfTarget && room.alive.has(wolfTarget) && !guardProtected) {
     const saved = room.night.witchSave === true;
     if (!saved) deaths.push(wolfTarget);
   }
@@ -136,6 +148,19 @@ export function resolveNight(room) {
 
   const uniqueDeaths = [...new Set(deaths)];
   for (const uid of uniqueDeaths) room.alive.delete(uid);
+
+  // Record hunter shots after deaths are applied
+  if (room.hunterShots) {
+    for (const [shooterId, targetId] of room.hunterShots.entries()) {
+      if (room.alive.has(shooterId) && room.alive.has(targetId)) {
+        // Hunter can shoot a living player
+        room.alive.delete(targetId);
+        uniqueDeaths.push(targetId);
+      }
+    }
+    // clear after processing
+    room.hunterShots.clear();
+  }
 
   room.lastDeaths = uniqueDeaths;
   room.lastPublicLog =
@@ -203,13 +228,23 @@ function shuffle(arr) {
 }
 
 function pickMajority(votesMap) {
+  // Determine the target with the highest vote count.
+  // If there is a tie (multiple targets with the same max count), return null so the game can handle it (e.g., no kill).
   const counts = new Map();
   for (const targetId of votesMap.values()) {
     counts.set(targetId, (counts.get(targetId) ?? 0) + 1);
   }
-  let best = null;
+  let max = 0;
+  let candidates = [];
   for (const [targetId, c] of counts.entries()) {
-    if (!best || c > best.count) best = { targetId, count: c };
+    if (c > max) {
+      max = c;
+      candidates = [targetId];
+    } else if (c === max) {
+      candidates.push(targetId);
+    }
   }
-  return best?.targetId ?? null;
+  // If a single candidate has the highest votes, return it; otherwise return null.
+  return candidates.length === 1 ? candidates[0] : null;
 }
+
