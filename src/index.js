@@ -12,7 +12,7 @@ import {
   tallyVotes
 } from "./game.js";
 
-const BOT_TOKEN = process.env.BOT_TOKEN?.trim();
+const BOT_TOKEN = "8789482336:AAHJtJDx5_aqOnf2dkALHfETP1axMc56Ma0";
 if (!BOT_TOKEN) {
   console.error("Missing BOT_TOKEN. Create a .env file based on .env.example.");
   process.exit(1);
@@ -259,4 +259,5 @@ bot.launch().then(() => console.log("Bot started (long polling)."));
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
 process.once("SIGTERM", () => bot.stop("SIGTERM"));
+
 
