@@ -1,0 +1,19 @@
+{
+  "name": "telegram-werewolf-bot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Telegram bot + WebApp (mini app) MVP for a simplified Werewolf game",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "node src/index.js",
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "https-proxy-agent": "^7.0.6",
+    "telegraf": "^4.16.3"
+  }
+}
+

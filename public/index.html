@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>狼人杀小程序</title>
+    <link rel="stylesheet" href="/style.css" />
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <div class="title">狼人杀（简化版 1.0）</div>
+        <div class="subtitle">WebApp 只是展示页，群里用命令玩</div>
+      </header>
+
+      <section class="card">
+        <div class="row">
+          <div class="label">房间（群）ID</div>
+          <div class="value" id="chatId">-</div>
+        </div>
+        <div class="row">
+          <div class="label">状态</div>
+          <div class="value" id="status">-</div>
+        </div>
+        <div class="row">
+          <div class="label">回合</div>
+          <div class="value" id="round">-</div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="cardTitle">玩家</div>
+        <div id="players" class="players"></div>
+        <div class="hint">提示：在群里用 <code>/newgame</code>、<code>/join</code>、<code>/startgame</code>、<code>/vote</code>、<code>/tally</code>。</div>
+      </section>
+
+      <footer class="foot">
+        <button id="refresh">刷新</button>
+        <button id="close">关闭</button>
+      </footer>
+    </div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
+
