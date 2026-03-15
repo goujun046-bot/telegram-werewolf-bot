@@ -13,9 +13,12 @@ export function createInitialRoom(chatId) {
     night: {
       wolfVotes: new Map(), // wolfId -> targetId
       wolfTarget: null,
+      wolvesAllVoted: false, // true when all living wolves have voted
       seerTarget: null,
       witchSave: null, // true|false|null (null = not decided)
       witchPoisonTarget: null,
+      witchPrompted: false, // avoid prompting witch multiple times
+      witchPoisonDecided: false, // true after witch chose use or skip poison
       guardTarget: null // guard protects this player
     },
     day: {
@@ -89,9 +92,12 @@ export function startGame(room) {
 export function resetNight(room) {
   room.night.wolfVotes = new Map();
   room.night.wolfTarget = null;
+  room.night.wolvesAllVoted = false;
   room.night.seerTarget = null;
   room.night.witchSave = null;
   room.night.witchPoisonTarget = null;
+  room.night.witchPrompted = false;
+  room.night.witchPoisonDecided = false;
 }
 
 export function resetDay(room) {
@@ -121,25 +127,25 @@ export function recordWitchSave(room, save) {
 
 export function recordWitchPoison(room, targetId) {
   room.night.witchPoisonTarget = targetId;
+  room.night.witchPoisonDecided = true;
   room.ability.witchPoisonUsed = true;
 }
 
 export function canResolveNight(room) {
-  // Wolves must have picked a target; Witch must decide save/no-save if a victim exists.
-  // If wolves haven't chosen a target, we can still proceed after a timeout (handled elsewhere).
-  // The game should not stall because the seer doesn't act, so seer is excluded.
-  if (!room.night.wolfTarget) return false;
+  // All wolves must have voted; witch must decide save and (if poison available) poison.
+  if (!room.night.wolvesAllVoted) return false;
   if (room.night.witchSave === null) return false;
-  // Guard and hunter actions are optional and handled separately.
+  const poisonDecided =
+    room.ability.witchPoisonUsed || room.night.witchPoisonDecided;
+  if (!poisonDecided) return false;
   return true;
 }
 
 export function resolveNight(room) {
   const deaths = [];
-  const wolfTarget = room.night.wolfTarget;
-  // Guard protection: if guardTarget matches wolfTarget, the kill is prevented
+  const wolfTarget = room.night.wolfTarget; // may be null if wolves tied
   const guardProtected = room.night.guardTarget === wolfTarget;
-  if (wolfTarget && room.alive.has(wolfTarget) && !guardProtected) {
+  if (wolfTarget != null && room.alive.has(wolfTarget) && !guardProtected) {
     const saved = room.night.witchSave === true;
     if (!saved) deaths.push(wolfTarget);
   }
@@ -247,4 +253,3 @@ function pickMajority(votesMap) {
   // If a single candidate has the highest votes, return it; otherwise return null.
   return candidates.length === 1 ? candidates[0] : null;
 }
-
