@@ -16,6 +16,8 @@ import {
   recordWitchPoison,
   canResolveNight,
   resolveNight,
+  resetNight,
+  resetDay,
   startVoting,
   recordDayVote,
   tallyDayVotes,
@@ -72,9 +74,9 @@ function webAppUrl(chatId) {
   return `${base}/?chatId=${encodeURIComponent(chatId)}`;
 }
 
-async function safeDm(botCtx, userId, text) {
+async function safeDm(botCtx, userId, text, extra = {}) {
   try {
-    await botCtx.telegram.sendMessage(userId, text);
+    await botCtx.telegram.sendMessage(userId, text, extra);
     return true;
   } catch {
     return false;
@@ -138,17 +140,28 @@ async function startNightFlow(ctx, room) {
     await safeDm(ctx, seerId, "🌙 黑夜：请选择你要查验的玩家。", aliveButtons(room, "seercheck"));
   }
 
-  // Witch will be prompted after wolves select a target (so she knows victim).
+  // Witch is prompted once when all wolves have voted (see callback).
 }
 
 async function promptWitch(ctx, room) {
   const witchId = [...room.alive].find((uid) => room.roles.get(uid) === "witch");
   if (!witchId) return;
-  if (!room.night.wolfTarget) return;
+  if (!room.night.wolvesAllVoted) return;
+  if (room.night.witchPrompted) return;
 
-  const victim = room.players.get(room.night.wolfTarget)?.name || "未知";
+  const wolfTarget = room.night.wolfTarget;
+  const victimText =
+    wolfTarget == null
+      ? "狼人未刀人（平票）。"
+      : `狼人选择击杀的是「${room.players.get(wolfTarget)?.name || "未知"}」。`;
   const canSave = !room.ability.witchAntidoteUsed;
   const canPoison = !room.ability.witchPoisonUsed;
+
+  if (!canSave) recordWitchSave(room, false);
+  if (!canPoison) {
+    room.night.witchPoisonTarget = null;
+    room.night.witchPoisonDecided = true;
+  }
 
   const rows = [];
   if (canSave) {
@@ -156,22 +169,28 @@ async function promptWitch(ctx, room) {
       Markup.button.callback("✅ 救", `witchsave:${room.chatId}:yes`),
       Markup.button.callback("❌ 不救", `witchsave:${room.chatId}:no`)
     ]);
-  } else {
-    // if antidote used, implicit no-save
-    recordWitchSave(room, false);
   }
   if (canPoison) {
     rows.push([Markup.button.callback("🧪 选择毒谁", `witchpoisonpick:${room.chatId}`)]);
     rows.push([Markup.button.callback("跳过用毒", `witchpoisonskip:${room.chatId}`)]);
-  } else {
-    // no poison available, treat as skip
-    room.night.witchPoisonTarget = null;
+  }
+
+  room.night.witchPrompted = true;
+
+  if (rows.length === 0) {
+    await safeDm(
+      ctx,
+      witchId,
+      `🌙 黑夜：${victimText}\n解药和毒药均已使用过，无需操作。`
+    );
+    await maybeResolveNight(ctx, room);
+    return;
   }
 
   await safeDm(
     ctx,
     witchId,
-    `🌙 黑夜：狼人选择击杀的是「${victim}」。\n你要使用解药吗？（解药仅一次）\n你要使用毒药吗？（毒药仅一次）`,
+    `🌙 黑夜：${victimText}\n你要使用解药吗？（解药仅一次）\n你要使用毒药吗？（毒药仅一次）`,
     Markup.inlineKeyboard(rows)
   );
 }
@@ -299,9 +318,12 @@ bot.on("callback_query", async (ctx) => {
     if (!room.alive.has(me)) return ctx.answerCbQuery("你已出局。");
     if (!room.alive.has(targetId)) return ctx.answerCbQuery("目标已出局。");
     recordWolfVote(room, me, targetId);
+    const wolves = [...room.alive].filter((uid) => room.roles.get(uid) === "werewolf");
+    if (wolves.length > 0 && room.night.wolfVotes.size >= wolves.length) {
+      room.night.wolvesAllVoted = true;
+      await promptWitch(ctx, room);
+    }
     await ctx.answerCbQuery("已记录。");
-    // Once wolves have a target, prompt witch
-    await promptWitch(ctx, room);
     return;
   }
 
@@ -328,7 +350,14 @@ bot.on("callback_query", async (ctx) => {
     if (room.ability.witchAntidoteUsed) return ctx.answerCbQuery("解药已用完。");
     recordWitchSave(room, choice === "yes");
     await ctx.answerCbQuery("已记录。");
-    await maybeResolveNight(ctx, room);
+    const canPoison = !room.ability.witchPoisonUsed && !room.night.witchPoisonDecided;
+    if (canPoison) {
+      const poisonRows = alivePlayers(room).map((p) => [Markup.button.callback(p.name, `witchpoison:${room.chatId}:${p.id}`)]);
+      poisonRows.push([Markup.button.callback("跳过用毒", `witchpoisonskip:${room.chatId}`)]);
+      await safeDm(ctx, me, "🧪 请选择你要毒的玩家，或点击「跳过用毒」。", Markup.inlineKeyboard(poisonRows));
+    } else {
+      await maybeResolveNight(ctx, room);
+    }
     return;
   }
 
@@ -348,6 +377,7 @@ bot.on("callback_query", async (ctx) => {
     if (room.roles.get(me) !== "witch") return ctx.answerCbQuery("你不是女巫。");
     if (!room.alive.has(me)) return ctx.answerCbQuery("你已出局。");
     room.night.witchPoisonTarget = null;
+    room.night.witchPoisonDecided = true;
     await ctx.answerCbQuery("已跳过用毒。");
     await maybeResolveNight(ctx, room);
     return;
@@ -391,10 +421,15 @@ bot.command("tally", async (ctx) => {
 
   if (res.type === "tie") {
     if (room.day.revote) {
-      room.phase = "day";
+      room.phase = "night";
+      room.round += 1;
       room.day.revote = false;
       room.day.revoteCandidates = [];
-      return ctx.reply("再次平票：本轮无人被处决。进入黑夜。");
+      resetNight(room);
+      resetDay(room);
+      await ctx.reply("再次平票：本轮无人被处决。进入黑夜，请注意查看私聊。");
+      await startNightFlow(ctx, room);
+      return;
     }
     room.day.revote = true;
     room.day.revoteCandidates = res.candidates;
